@@ -1,4 +1,4 @@
-(defproject factual/s3-journal "0.1.3"
+(defproject com.emidln/s3-journal "0.2.0-SNAPSHOT"
   :description "Reliable, high-throughput journalling to S3"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
