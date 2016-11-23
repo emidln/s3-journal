@@ -23,7 +23,8 @@ All configuration is passed in as a map to `(journal options)`, with the followi
 | `:local-directory` | yes | the directory on the local file system that will be used for queueing, will be created if doesn't already exist |
 | `:encoder` | no | a function that takes an entry and returns something that can be converted to bytes via [byte-streams](https://github.com/ztellman/byte-streams) |
 | `:compressor` | no | Either one of `:gzip`, `:snappy`, `:lzo`, `:bzip2`, or a custom function that takes a sequence of byte-arrays and returns a compressed representation |
-| `:delimiter` | no | a delimiter that will be placed between entries, defaults to a newline character |
+| `:delimiter` | no | a delimiter that will be placed between entries (default: "\n") |
+| `:sized?` | no | if true, an integer count of the bytes of encoded object is prepended (default: false) |
 | `:max-batch-latency` | yes | a value, in milliseconds, of how long entries should be batched before being written to disk |
 | `:max-batch-size` | yes | the maximum number of entries that can be batched before being written to disk |
 | `:fsync?` | no | describes whether the journal will fsync after writing a batch to disk, defaults to true |
@@ -34,6 +35,8 @@ All configuration is passed in as a map to `(journal options)`, with the followi
 Fundamentally, the central tradeoff in these settings are data consistency vs throughput.
 
 If we persist each entry as it comes in, our throughput is limited to the number of [IOPS](http://en.wikipedia.org/wiki/IOPS) our hardware can handle.  However, if we can afford to lose small amounts of data (and we almost certainly can, otherwise we'd be writing each entry to a replicated store individually, rather than in batch), we can bound our loss using the `:max-batch-latency` and `:max-batch-size` parameters.  At least one of these parameters must be defined, but usually it's best to define both.  Defining our batch size bounds the amount of memory that can be used by the journal, and defining our batch latency bounds the amount of time that a given entry is susceptible to the process dying.  Setting `:fsync?` to false can greatly increase throughput, but removes any safety guarantees from the other two parameters - use this parameter only if you're sure you know what you're doing.
+
+If encoding arbitrary clojure values with something like nippy or cheshire, the setting of `sized? true, delimiter nil` is valuable for allowing readers to know how much of the file to decode. The default settings for sized? and delimiter work well for variable-sized numeric measurements (where the delimiter isn't possible, making it easy to write a reader).
 
 If more than one journal on a given host is writing to the same bucket and directory on S3, a unique identifier for each must be chosen.  This identifier should be consistent across process restarts, so that partial uploads from a previous process can be properly handled.  One approach is to add a prefix to the hostname, which can be determined by `(s3-journal/hostname)`.
 

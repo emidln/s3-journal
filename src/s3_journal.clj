@@ -9,6 +9,8 @@
     [s3-journal.s3 :as s3]
     [clojure.java.io :as io])
   (:import
+    [java.nio
+     ByteBuffer]
     [java.util.concurrent
      LinkedBlockingQueue
      Semaphore]
@@ -469,6 +471,12 @@
 
 ;;;
 
+(defmacro int->bytes
+  [i]
+  `(-> (ByteBuffer/allocate Integer/BYTES)
+       (.putInt ~i)
+       .array))
+
 (defn- journal-
   [{:keys
     [s3-access-key
@@ -479,6 +487,7 @@
      encoder
      compressor
      delimiter
+     sized?
      fsync?
      suffix
      max-queue-size
@@ -487,6 +496,7 @@
      expiration
      id]
     :or {delimiter "\n"
+         sized? false
          encoder bs/to-byte-array
          id (hostname)
          compressor identity
@@ -496,6 +506,10 @@
          s3-directory-format "yyyy/MM/dd"}}]
 
   (assert local-directory "must define :local-directory for buffering the journal")
+  (assert (or (nil? delimiter) (string? delimiter)) "delimiter must be nil or a string")
+
+  (when-not (or delimiter sized?)
+    (log/info "no delimiter or sized? specified; records may be difficult to consume!"))
 
   (.mkdirs (io/file local-directory))
 
@@ -507,20 +521,25 @@
                    :bzip2 "bz2"
                    :lzo "lzo"
                    nil))
-        delimiter (bs/to-byte-array delimiter)
+        delimiter (when delimiter (bs/to-byte-array delimiter))
         compressor (if (keyword? compressor)
                      #(bt/compress % compressor)
                      compressor)
+        packer (cond
+                 (and delimiter sized?) #(vector (int->bytes (alength %)) (bs/to-byte-array %) delimiter)
+                 delimiter #(vector (bs/to-byte-array %) delimiter)
+                 sized? #(vector (int->bytes (alength %)) (bs/to-byte-array %))
+                 :else #(vector (bs/to-byte-array %)))
         ->bytes (fn [s]
                   (if (nil? s)
                     (byte-array 0)
                     (->> s
-                      (map encoder)
-                      (mapcat #(vector (bs/to-byte-array %) delimiter))
-                      vec
-                      bs/to-byte-array
-                      compressor
-                      bs/to-byte-array)))
+                         (map encoder)
+                         (mapcat packer)
+                         vec
+                         bs/to-byte-array
+                         compressor
+                         bs/to-byte-array)))
         c (s3/client s3-access-key s3-secret-key)
         q (q/queues local-directory
             {:fsync-put? fsync?})
@@ -605,6 +624,7 @@
      encoder
      compressor
      delimiter
+     sized?
      fsync?
      max-batch-latency
      max-batch-size
@@ -614,6 +634,7 @@
      suffix
      shards]
     :or {delimiter "\n"
+         sized? false
          encoder bs/to-byte-array
          id (hostname)
          compressor identity
